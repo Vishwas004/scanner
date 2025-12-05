@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Attendance Sheet Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020617;
+      color: #e5e7eb;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    p.subtitle {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .camera-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      aspect-ratio: 3 / 4; /* mobile portrait area */
+      background: #020617;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid #1f2937;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* mirror so user feels natural */
+    }
+
+    /* Dark overlay outside frame */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .overlay-shade {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+    }
+
+    /* Scanner frame: A4-ish rectangle at center */
+    .frame {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 86%;          /* change if you want smaller/larger frame */
+      aspect-ratio: 210 / 297;  /* A4 ratio approx */
+      border: 3px solid #facc15;
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55); /* shade outside */
+    }
+
+    .frame::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border: 1px dashed rgba(250, 204, 21, 0.5);
+      border-radius: 6px;
+    }
+
+    .hint {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: #e5e7eb;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+    }
+
+    .controls {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    button {
+      flex: 1;
+      border: none;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease, opacity 0.15s ease;
+    }
+
+    button:active {
+      transform: translateY(1px) scale(0.99);
+      box-shadow: none;
+    }
+
+    .btn-capture {
+      background: linear-gradient(to right, #22c55e, #a3e635);
+      color: #052e16;
+      box-shadow: 0 8px 20px rgba(34, 197, 94, 0.35);
+    }
+
+    .btn-switch {
+      background: #111827;
+      color: #e5e7eb;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.85);
+      border: 1px solid #1f2937;
+      max-width: 120px;
+      flex: 0 0 auto;
+    }
+
+    .btn-disabled {
+      opacity: 0.5;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .preview-section {
+      width: 100%;
+      max-width: 480px;
+      margin-top: 14px;
+      border-radius: 12px;
+      border: 1px solid #1f2937;
+      padding: 10px;
+      background: radial-gradient(circle at top, #0f172a, #020617);
+    }
+
+    .preview-section h2 {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .preview-img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      object-fit: contain;
+      max-height: 280px;
+    }
+
+    .download-btn {
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid #22c55e;
+      background: transparent;
+      color: #bbf7d0;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .download-btn span {
+      font-size: 16px;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    .error {
+      color: #fecaca;
+    }
+
+    /* Hide canvases */
+    canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Attendance Sheet Scanner</h1>
+  <p class="subtitle">
+    Sheet ne niche na yellow frame andar straight set karo, pachhi "Capture" dabāvo.
+  </p>
+
+  <div class="camera-wrapper" id="cameraWrapper">
+    <video id="video" autoplay playsinline></video>
+
+    <div class="overlay">
+      <div class="frame" id="frame"></div>
+      <div class="hint">Sheet na 4 corner ne frame na border sathe line karo.</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="switchBtn" class="btn-switch">Switch</button>
+    <button id="captureBtn" class="btn-capture">Capture</button>
+  </div>
+
+  <div class="preview-section">
+    <h2>Last Capture (Cropped to Frame)</h2>
+    <img id="previewImg" class="preview-img" alt="Preview will appear here" />
+
+    <button id="downloadBtn" class="download-btn" style="display:none;">
+      <span>⬇</span> Download JPG
+    </button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <!-- Hidden canvases for capture + crop -->
+  <canvas id="fullCanvas"></canvas>
+  <canvas id="cropCanvas"></canvas>
+
+  <script>
+    const video = document.getElementById("video");
+    const frame = document.getElementById("frame");
+    const captureBtn = document.getElementById("captureBtn");
+    const switchBtn = document.getElementById("switchBtn");
+    const fullCanvas = document.getElementById("fullCanvas");
+    const cropCanvas = document.getElementById("cropCanvas");
+    const previewImg = document.getElementById("previewImg");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const statusEl = document.getElementById("status");
+
+    let currentStream = null;
+    let useBackCamera = true;
+
+    async function startCamera() {
+      statusEl.textContent = "Opening camera...";
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+      }
+
+      const constraints = {
+        video: {
+          facingMode: useBackCamera ? { exact: "environment" } : "user"
+        },
+        audio: false
+      };
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
+        video.srcObject = stream;
+        statusEl.textContent = "Camera ready. Sheet ne frame andar set karo.";
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "Camera access error (HTTPS required on mobile).";
+        statusEl.classList.add("error");
+      }
+    }
+
+    // Start on load (after permission)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      startCamera();
+    } else {
+      statusEl.textContent = "Your browser does not support camera access.";
+      statusEl.classList.add("error");
+      captureBtn.classList.add("btn-disabled");
+    }
+
+    switchBtn.addEventListener("click", () => {
+      useBackCamera = !useBackCamera;
+      startCamera();
+    });
+
+    captureBtn.addEventListener("click", () => {
+      if (!currentStream) return;
+      if (!video.videoWidth || !video.videoHeight) {
+        statusEl.textContent = "Camera not ready yet, wait 1–2 seconds.";
+        return;
+      }
+
+      // 1) Draw full video frame to hidden canvas at native resolution
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+
+      fullCanvas.width = vw;
+      fullCanvas.height = vh;
+
+      const ctx = fullCanvas.getContext("2d");
+      // mirror fix: we mirrored video, so we need to flip when drawing
+      ctx.save();
+      ctx.translate(vw, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, vw, vh);
+      ctx.restore();
+
+      // 2) Convert frame rectangle (DOM pixels) → video pixels
+      const videoRect = video.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+
+      const scaleX = vw / videoRect.width;
+      const scaleY = vh / videoRect.height;
+
+      let cropX = (frameRect.left - videoRect.left) * scaleX;
+      let cropY = (frameRect.top - videoRect.top) * scaleY;
+      let cropW = frameRect.width * scaleX;
+      let cropH = frameRect.height * scaleY;
+
+      // Safety clamp
+      cropX = Math.max(0, cropX);
+      cropY = Math.max(0, cropY);
+      if (cropX + cropW > vw) cropW = vw - cropX;
+      if (cropY + cropH > vh) cropH = vh - cropY;
+
+      // 3) Draw cropped region into cropCanvas
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+      const cropCtx = cropCanvas.getContext("2d");
+      cropCtx.drawImage(
+        fullCanvas,
+        cropX,
+        cropY,
+        cropW,
+        cropH,
+        0,
+        0,
+        cropW,
+        cropH
+      );
+
+      // 4) Show preview + enable download
+      cropCanvas.toBlob(blob => {
+        if (!blob) {
+          statusEl.textContent = "Capture failed.";
+          statusEl.classList.add("error");
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        previewImg.src = url;
+        downloadBtn.style.display = "inline-flex";
+
+        // optional: you can directly send `blob` to your Flask /api/ocr here
+        statusEl.textContent = "Captured! Now image has fixed frame crop.";
+      }, "image/jpeg", 0.95);
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      cropCanvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "attendance_scan.jpg";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, "image/jpeg", 0.95);
+    });
+
+    // Extra: re-calc after orientation change
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => {
+        if (currentStream) {
+          // just recalc on next capture, nothing special needed
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>
